@@ -769,6 +769,11 @@ impl<T: Transport> OuraClient<T> {
     /// Enable live heart rate (daytime HR, `CONNECTED_LIVE`) and invoke `on_sample`
     /// for each valid beat for up to `duration`. Restores `AUTOMATIC` mode on exit.
     /// The ring must be worn for samples to appear.
+    ///
+    /// The ring pushes beats only to a `LATEST` subscription on `DAYTIME_HR`. Without
+    /// it (the state after a factory reset), a Ring 3 measured in live mode and logged
+    /// IBIs to history but sent no notifications; `FEATURE_DATA` logged `DHR unsub`.
+    /// The subscription is cleared on exit.
     pub async fn live_heart_rate<F>(
         &self,
         duration: Duration,
@@ -778,6 +783,13 @@ impl<T: Transport> OuraClient<T> {
     where
         F: FnMut(HeartRateSample),
     {
+        let sub = self
+            .set_feature_subscription(feature::DAYTIME_HR, protocol::subscription_mode::LATEST)
+            .await;
+        if debug {
+            eprintln!("subscribe DAYTIME_HR LATEST: {sub:?}");
+        }
+
         let mut rx = self.transport.subscribe();
         // Drain backlog.
         while rx.try_recv().is_ok() {}
@@ -816,6 +828,9 @@ impl<T: Transport> OuraClient<T> {
                 feature::DAYTIME_HR,
                 feature_mode::AUTOMATIC,
             ))
+            .await;
+        let _ = self
+            .set_feature_subscription(feature::DAYTIME_HR, protocol::subscription_mode::OFF)
             .await;
         Ok(())
     }
